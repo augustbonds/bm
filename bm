@@ -1,0 +1,133 @@
+#!/usr/bin/env python
+import os, sys, subprocess, csv, logging
+
+logging.basicConfig()
+LOG = logging.getLogger(__name__)
+#LOG.setLevel(10)
+
+try:
+    git_dir = os.environ['BM_GIT_DIR']
+except:
+    raise Exception, "BM_GIT_DIR enviroment variable not set."
+
+LOG.debug('Working dir: ' + git_dir)
+def git(dir, *args):
+    return subprocess.check_call(['git','-C', dir] + list(args) )
+
+
+def getBookmarks(path):     
+    with open(path, 'r') as csvfile:
+        fieldnames = ['name', 'url']
+        reader = csv.DictReader(csvfile, fieldnames=fieldnames)
+        dictArray = []
+        for row in reader:
+            dictArray.append(row)
+        return dictArray
+
+def writeBookmarks(path, dictArray):
+    with open(path, 'w') as csvfile:
+        fieldnames = ['name', 'url']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        for row in dictArray:
+            writer.writerow(row)
+
+args = sys.argv
+if len(args) < 2:
+    raise Exception, 'arguments must be one of: add, rm, show, open'
+
+for arg in range(len(args)):
+    LOG.debug("Arg"+str(arg)+": "+args[arg])
+
+def addBookmark(path, url):
+    fullPath = git_dir + '/' + path
+    LOG.debug("Full path: " + fullPath)
+    relativePath = fullPath.split('/')
+    LOG.debug("Num components: " + str(len(relativePath)))
+    LOG.debug("Full path after split: " + '/'.join(relativePath))
+    if len(path.split('/')) == 1:
+        folderPath = git_dir
+    else:
+        folderPath = '/'.join(relativePath[0:len(relativePath)-1])
+    LOG.debug("Folder path: " + folderPath)
+    bookmarksPath = folderPath + '/bookmarks' #Unix-specific
+    LOG.debug("Bookmarks-file: " + bookmarksPath)
+    subprocess.check_call(['mkdir', '-p', folderPath])
+    subprocess.check_call(['touch', bookmarksPath])
+    bookmarks = getBookmarks(bookmarksPath)
+    bookmarks.append({'name' : relativePath[len(relativePath)-1], 'url': url})
+    writeBookmarks(bookmarksPath, bookmarks)
+
+    git(git_dir, "add", ".")
+    git(git_dir, "commit", "-m", '"Added '+path+'"')
+    git(git_dir, "status")
+
+def printFolder(name):
+    print '\033[1;36m' + name +'\033[0;m'
+
+def printBookmark(bookmark):
+    print bookmark['name'] + ' : '+ bookmark['url']
+
+def lsFolders(folder):
+    dirname, dirnames, filenames = next(os.walk(folder))
+    if '.git' in dirnames:
+        dirnames.remove('.git')
+    LOG.debug("Num subdirs: " + str(len(dirnames)))
+    for subdirname in dirnames:
+        printFolder(subdirname + '/')
+
+def lsBookmarks(folder):
+    if (folder == ''):
+        fullPath = git_dir
+    else:
+        fullPath = git_dir + '/' + folder
+    LOG.debug("Full path: " + fullPath)
+    relativePath = fullPath.split('/')
+    LOG.debug("Num components: " + str(len(relativePath)))
+    LOG.debug("Full path after split: " + '/'.join(relativePath))
+    bookmarksPath = fullPath + '/bookmarks'
+    bookmarks = getBookmarks(bookmarksPath)
+    
+    lsFolders(fullPath)
+    for bookmark in bookmarks:
+        printBookmark(bookmark)
+
+def openBookmark(path):
+    fullPath = git_dir + '/' + path
+    LOG.debug("Full path: " + fullPath)
+    relativePath = fullPath.split('/')
+    LOG.debug("Num components: " + str(len(relativePath)))
+    LOG.debug("Full path after split: " + '/'.join(relativePath))
+    if len(path.split('/')) == 1:
+        folderPath = git_dir
+    else:
+        folderPath = '/'.join(relativePath[0:len(relativePath)-1])
+    bookmarksPath = folderPath + '/bookmarks'
+
+    bookmarks = getBookmarks(bookmarksPath)
+    for bookmark in bookmarks:
+        if bookmark['name'] == relativePath[len(relativePath)-1]:
+            ps = subprocess.Popen(['echo', bookmark['url']], stdout=subprocess.PIPE)
+            output = subprocess.check_call(['pbcopy'], stdin=ps.stdout)
+            ps.wait()
+            print 'Copied', bookmark['url'], 'to clipboard'
+            break
+
+
+command = args[1]
+if ("add" == command):
+    #assume add: bm add path/to/bookmark url
+    addBookmark(path=args[2], url=args[3])
+if ("ls" == command):
+    #assume ls: bm ls
+    # or: bm ls path/to/folder
+    if len(args) == 2:
+        lsBookmarks('')
+    else:
+        lsBookmarks(args[2])
+if ("open" == command):
+    openBookmark(path=args[2])
+    
+
+#if ("rm" == command):
+
+    
